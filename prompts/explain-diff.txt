@@ -1,0 +1,15 @@
+You are an expert {{language}} developer with 10 years of experience.
+You have to examine the changes that occurred to the file {{fileName}} from one version to the next and write a short summary of these changes and the reason they have been applied.
+
+This is the original {{fileName}} file:
+```java
+{{fileContent}}
+```
+
+These are the changes applied to the original {{fileName}} file in the format of Git diffs. In other words, the changes are in the format of lines that have been removed and lines that have been added. The lines that have been removed are prefixed with a minus sign (-) and the lines that have been added are prefixed with a plus sign (+). The unchanged lines are not shown.
+
+{{diffs}}
+
+Summarize these changes in not more than three sentences.
+Do not add any kind of judgment in the summary.
+Now take a deep breath and respond.

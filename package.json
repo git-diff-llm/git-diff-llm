@@ -27,6 +27,16 @@
     "chai": "^4.5.0",
     "mocha": "^10.8.2",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "@types/json2md": "^1.5.4"
+  },
+  "dependencies": {
+    "@enrico.piccinin/csv-tools": "^1.0.11",
+    "axios": "^1.4.0",
+    "commander": "^11.0.0",
+    "json2md": "^2.0.1",
+    "observable-fs": "^2.2.8",
+    "openai": "^4.68.4",
+    "rxjs": "^7.8.1"
   }
 }

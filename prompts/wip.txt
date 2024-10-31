@@ -1,0 +1,841 @@
+You are an expert Java developer with 10 years of experience.
+You have to examine the changes that occurred to the file "GestoreAutorizzazioni.java" from one version to the next and write a short summary of these changes and the reason they have been applied.
+This is the original "GestoreAutorizzazioni.java" file
+```java
+package it.rgi.passportafoglio.aut1;
+
+import it.rgi.appObj.GestoreOggetti;
+import it.rgi.appObj.GestoreOggettiSimple;
+import it.rgi.appObj.OggettoBase;
+import it.rgi.appObj.RelazioneInterna;
+import it.rgi.dbobjects.*;
+import it.rgi.passadmin.OperatoreAutenticato;
+import it.rgi.passadmin.cache.CacheEntitaUtente;
+import it.rgi.passaut.PassAutorizzazione;
+import it.rgi.passcomp.umafactoryproducermode.util.FiltersLibrary;
+import it.rgi.passportafoglio.IAutorizzazione;
+import it.rgi.passportafoglio.ICostantiProprietaCustom;
+import it.rgi.passportafoglio.IGestoreAutorizzazioni;
+import it.rgi.passportafoglio.ISegnalazioneCostanti;
+import it.rgi.passportafoglio.aut1.factory.AutorizzazioneFactoryProducer;
+import it.rgi.passportafoglio.aut1.factory.FilterAutorizzazioneBasicImpl;
+import it.rgi.passportafoglio.base.Contratto;
+import it.rgi.passportafoglio.base.ProprietaCustom;
+import it.rgi.passportafoglio.base.ResponsoQuotazione;
+import it.rgi.passportafoglio.base.rata.ContenitoreRata;
+import it.rgi.passportafoglio.cache.ListaCausali;
+import it.rgi.passpro.api.PropertyOwner;
+import it.rgi.passprocache.obj.EntitaOperazioni;
+import it.rgi.webapp.dbms.Connettore;
+import it.rgi.webapp.dbms.MetaInfo;
+import it.rgi.webapp.dbms.ObjectId;
+import it.rgi.webapp.dbms.OggettoEntita;
+import it.rgi.webapp.dbms.OggettoRelazione;
+import it.rgi.webapp.dbms.Transazione;
+import it.rgi.webapp.dbms.VersionId;
+import it.rgi.webapp.utility.ArrayIterator;
+import it.rgi.webapp.utility.database.CostantiQuery;
+import it.rgi.webapp.utility.database.Query;
+import it.rgi.webapp.utility.sortmap.LinkedHashMap;
+
+import java.io.IOException;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.Objects;
+
+/**
+ * Gestore delle Autorizzazioni it.rgi.passportafoglio.aut1.GestoreAutorizzazioni.<BR>
+ * ATTENZIONE: l'elemento Autorizzazione non e' un OggettoBase di AppObj per cui la lista delle richieste e il relativo caricamento non vengono gestiti tramite il GestoreOggettiSimple ma con una lista e un flag di caricamento interni.<BR>
+ *
+ * @author &nbsp;&nbsp; Copyright � 2004 <A HREF="http://www.rgi.it/">RGI SpA</A>. &nbsp; All Rights Reserved.
+ */
+public class GestoreAutorizzazioni extends GestoreOggettiSimple implements IGestoreAutorizzazioni {
+
+    private static final long   serialVersionUID          = 1L;
+
+    public static final String  COD_DEROGA_PROVVIGIONI    = "PCPROV";
+    public static final String  COD_DEROGA_FLESSIBILITA   = "PCFLEX";
+
+    private final LinkedHashMap listAutorizzazioni        = new LinkedHashMap();
+    private final LinkedHashMap listAutorizzazioniRimosse = new LinkedHashMap();
+    private boolean             loaded                    = false;
+
+    /**
+     * Costruttore con owner e flag di caricamento. In caso di caricamento da db, al primo utilizzo di un elemento vengono caricati tutti gli elementi.
+     *
+     * @param owner
+     *            oggetto owner del Gestore
+     * @param isLoaded
+     *            true se creato ex-novo, false se caricato da db
+     */
+    public GestoreAutorizzazioni(final Contratto owner, final boolean isLoaded) {
+        super(owner, isLoaded);
+    }
+
+    // ///////////////////////////////////////////////////////////
+    // Metodi Pubblici
+    // ///////////////////////////////////////////////////////////
+
+    /**
+     * @deprecated: perche' non effettua il caricamento della lista prima di aggiungere l'elemento. Utilizzare il rispettivo metodo col Connettore.<BR>
+     *              Aggiunge la richiesta specificata alla lista delle richieste di autorizzazione.<BR>
+     *              Se la richiesta esiste gia' non fa nulla.<BR>
+     * @param autorizzazione
+     *            richiesta di autorizzazione da aggiungere
+     */
+    public void registraSuGestore(final Autorizzazione autorizzazione) {
+        if (!listAutorizzazioni.containsKey(autorizzazione.getKey())) {
+            listAutorizzazioni.put(autorizzazione.getKey(), autorizzazione);
+        }
+        loaded = true;
+    }
+
+    /**
+     * @deprecated: perche' non effettua il caricamento della lista prima di rimuovere l'elemento. Utilizzare il rispettivo metodo col Connettore.<BR>
+     *              Rimuove la richiesta specificata alla lista delle richieste di autorizzazione.<BR>
+     * @param autorizzazione
+     *            richiesta di autorizzazione da rimuovere
+     */
+    public void cancellaDaGestore(final Autorizzazione autorizzazione) {
+        listAutorizzazioni.remove(autorizzazione.getKey());
+    }
+
+    /**
+     * Aggiunge la richiesta specificata alla lista delle richieste di autorizzazione.<BR>
+     * Se la richiesta esiste gia' la sostituisce.<BR>
+     *
+     * @param connettore
+     * @param autorizzazione
+     *            richiesta di autorizzazione da aggiungere
+     * @return
+     */
+    public Autorizzazione registraSuGestore(final Connettore connettore, final Autorizzazione autorizzazione)
+        throws SQLException, IOException {
+        internalCaricaAutorizzazioni(connettore);
+        return (Autorizzazione) listAutorizzazioni.put(autorizzazione.getKey(), autorizzazione);
+    }
+
+    /**
+     * Rimuove la richiesta specificata alla lista delle richieste di autorizzazione.<BR>
+     *
+     * @param connettore
+     * @param idAutorizzazione
+     *            identificativo richiesta di autorizzazione da rimuovere
+     * @return richiesta rimossa
+     */
+    public Autorizzazione cancellaDaGestore(final Connettore connettore, final Autorizzazione autorizzazione)
+        throws SQLException, IOException {
+        internalCaricaAutorizzazioni(connettore);
+        final Autorizzazione rimossa = (Autorizzazione) listAutorizzazioni.remove(autorizzazione.getKey());
+        if (rimossa != null) {
+            listAutorizzazioniRimosse.put(rimossa.getKey(), rimossa);
+        }
+        return rimossa;
+    }
+
+    /*
+     * (non-Javadoc)
+     * @see it.rgi.passportafoglio.IGestoreAutorizzazioni#getGestoreOggetti()
+     */
+    public GestoreOggetti getGestoreOggetti() {
+        return this;
+    }
+
+    /**
+     * Ritorna il Contratto owner del Gestore
+     *
+     * @return istanza di Contratto
+     */
+    public Contratto getContratto() {
+        return (Contratto) super.getOwner();
+    }
+
+    /**
+     * Indica se il contratto contiene o meno una richiesta di autorizzazione da rimuovere
+     *
+     * @param connettore
+     *            Connessione al DB
+     * @param op
+     *            utente connesso
+     * @param responsoQuotazione
+     *            responso della quotazione
+     * @return true se il contratto contiene una richiesta di autorizzazione da rimuovere, false altrimenti
+     */
+    public boolean containAutorizzazioneDaRimuovere(final Connettore connettore, final OperatoreAutenticato op, final ResponsoQuotazione responsoQuotazione)
+        throws SQLException, IOException {
+        internalCaricaAutorizzazioni(connettore);
+
+        Autorizzazione aut = (Autorizzazione) getAutorizzazioneSuccessiva(connettore);
+        // Se manca il movimento successivo considero l'autorizzazione di quello corrente
+        if (aut == null) {
+            aut = (Autorizzazione) getAutorizzazioneCorrente(connettore);
+        }
+
+        if (aut != null) {
+            // if the last event is different from authorization creation, it means that other users (es. admin) has already taken in charge the request.
+            // At this point it is not possible to remove the authorization anymore
+            boolean isAuthAlreadyProcessed = aut.getEventi().getUltimo() != null
+                    && !EntAutoevento.ENUM_EEVENTO_RICHIESTA_INOLTRATA.equals(aut.getEventi().getUltimo().getAttrEventoObjectId());
+
+            EntUtente utenteRichiesta = (EntUtente) CacheEntitaUtente.getSingleton().getByObjectId(connettore, aut.getEntAut().getAttrIdUserrichiesta(), false);
+            if (isAuthAlreadyProcessed || ((EntPassautorizz.ENUM_ESTATO_PENDENTE.equals(aut.getStato()) && !utenteRichiesta.getAttrTipoObjectId().equals(op.getOperatoreAutenticato().getAttrTipoObjectId()))
+                || (!EntPassautorizz.ENUM_ESTATO_PENDENTE.equals(aut.getStato())))) {
+                // Se ho un autorizzazione pendente ma richiesta da un utente diverso da
+                // quello connesso allora non elimino la richiesta
+                // Se ho un autorizzazione non prendente non la elimino
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Indica se la richiesta di autorizzazione è una richiesta di supporto
+     *
+     * @param connettore
+     *            Connessione al DB
+     * @return true se la richiesta di autorizzazione è una richiesta di supporto, false altrimenti
+     */
+    public boolean isRichiestaSupporto(final Connettore connettore)
+        throws SQLException, IOException {
+        Autorizzazione aut = (Autorizzazione) getAutorizzazioneSuccessiva(connettore);
+        // Se manca il movimento successivo considero l'autorizzazione di quello corrente
+        if (aut == null) {
+            aut = (Autorizzazione) getAutorizzazioneCorrente(connettore);
+        }
+
+        if ((aut != null) && EntPassautorizz.ENUM_ESTATO_PENDENTE.equals(aut.getStato()) && aut.getEntAut().getAttrAiuto()) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Indica che tipo di gestione delle deroghe può fare l'operatore specificato in base allo stato della polizza e alla presenza di un'eventuale richiesta di autorizzazione.
+     *
+     * @param connettore
+     *            Connessione al DB
+     * @param op
+     *            utente connesso
+     * @param tipoProdotto
+     *            tipo prodotto
+     * @return uno delle seguenti costanti:<BR>
+     *         <B>CANDO_NOTHING</B>: nessuna gestione autorizzativa prevista per la polizza<BR>
+     *         <B>CANDO_RICHIESTA_SUPPORTO</B>: si puo' richiedere supporto<BR>
+     *         <B>CANDO_GESTIONE_AUTORIZZAZIONE</B>: si puo' gestire una richiesta pendente<BR>
+     *         <B>CANDO_RICHIESTA_AUTORIZZAZIONE</B>: si puo' richiedere autorizzazione<BR>
+     *         <B>CANDO_CONSULTA_RICHIESTA_AUTORIZZAZIONE</B>: si puo' consultare la richiesta associata allo stato corrente della polizza<BR>
+     */
+    public short whatCanIDo(final Connettore connettore, final OperatoreAutenticato op, final int tipoProdotto)
+        throws Exception {
+        short tipo = CANDO_NOTHING;
+        final Contratto c = getContratto();
+        final EntMovimento mv = c.getMovimentoDiSalvataggio();
+
+        Autorizzazione aut = null;
+        final IAutorizzazione[] iaut = getAutorizzazioniVisibiliSulContratto(connettore);
+        if (iaut.length > 0) {
+            aut = (Autorizzazione) iaut[0];
+        }
+
+        if ((aut == null) || ((mv != null) && (aut.getIdMovimentoOwner() != null) && !mv.getObjectId().equals(aut.getIdMovimentoOwner()))) {
+            // Se non ho richieste oppure sto salvando un movimento di variazione e la richiesta
+            // sta sul movimento di caricamento, allora sono le segnalazioni legate
+            // al movimento di variazione a determinare le azioni possibili
+
+            // Se sto facendo una variazione non rendo consultabile
+            // un'eventuale richiesta sul movimento di caricamento
+
+            final EstensioniAut1 extAut1 = ConfigurazioneAut.getSingleton().getEstensioniAutorizzazione();
+            final GestoreSegnalazioni gesSegnal = (GestoreSegnalazioni) c.getSegnalazioni();
+            if ((gesSegnal.richiedeAutorizzazione(connettore, op) && !EntMovimento.ENUM_ESTATO_PROPOSTA_NON_QUOTABILE.equals(c.getStato()) && !extAut1.isUtenteTopLevel(connettore, op))
+                || c.isPremioModificatoConRichiestaRAO()) {
+                tipo = CANDO_RICHIESTA_AUTORIZZAZIONE;
+            } else if (!c.isPolizza() && isRichiestaSupportoPossibile(connettore, c, op)) {
+                tipo = CANDO_RICHIESTA_SUPPORTO;
+            }
+        } else if (aut.canIDoSomething(connettore, op, tipoProdotto)) {
+            tipo = CANDO_GESTIONE_AUTORIZZAZIONE;
+        } else if (EntPassautorizz.ENUM_ESTATO_PENDENTE.equals(aut.getStato())) {
+            tipo = CANDO_CONSULTA_RICHIESTA_AUTORIZZAZIONE;
+        }
+        return tipo;
+    }
+
+    /**
+     * Indica se per l'utente specificato è possibile effettuare una richiesta di autorizzazione sul contratto specificato
+     *
+     * @param connettore
+     *            connessione al db
+     * @param contratto
+     *            contratto
+     * @param operatore
+     *            utente connesso
+     * @throws java.io.IOException
+     * @throws java.sql.SQLException
+     * @return true se si può effettuare una richiesta di autorizzazione, false altrimenti
+     */
+    public static boolean isRichiestaSupportoPossibile(final Connettore connettore, final Contratto contratto, final OperatoreAutenticato operatore)
+        throws Exception {
+        boolean ritorno = false;
+        final EstensioniAut1 extAut1 = ConfigurazioneAut.getSingleton().getEstensioniAutorizzazione();
+        if (!extAut1.isUtenteTopLevel(connettore, operatore)) {
+            if ((contratto != null) && extAut1.isRichiestaSupportoPossibile(connettore, contratto, operatore)) {
+                ritorno = true;
+            } else if ((contratto != null) && ProprietaCustom.getPropBooleanValue((PropertyOwner) contratto.getProdotto(connettore), ICostantiProprietaCustom.PROP_RICHIESTA_SUPPORTO)) {
+                ritorno = true;
+            }
+        }
+        return ritorno;
+    }
+
+    /*
+     * (non-Javadoc)
+     * @see it.rgi.passportafoglio.IGestoreAutorizzazioni#calcolaDeroghe(it.rgi.webapp.dbms.Connettore, it.rgi.passadmin.OperatoreAutenticato, it.rgi.passportafoglio.base.ResponsoQuotazione, it.rgi.passportafoglio.base.rata.ContenitoreRata)
+     */
+    public void calcolaDeroghe(final Connettore connettore, final OperatoreAutenticato op, final ResponsoQuotazione responsoQuotazione, final ContenitoreRata rata)
+        throws IOException, SQLException {
+        final Contratto c = getContratto();
+
+        final boolean bRimuoviAutorizzazione = containAutorizzazioneDaRimuovere(connettore, op, responsoQuotazione);
+        final boolean bRichiestaSupporto = isRichiestaSupporto(connettore);
+
+        final GestoreSegnalazioni gestSegnal = (GestoreSegnalazioni) c.getSegnalazioni();
+
+        if (bRimuoviAutorizzazione || bRichiestaSupporto) {
+            gestSegnal.rimuoviSegnalazioni(connettore, new int[] { ISegnalazioneCostanti.ORIGINE_TARIFFA });
+        }
+
+        // Rimuovo sempre le segnalazioni applicative
+        gestSegnal.rimuoviSegnalazioni(connettore, new int[] { ISegnalazioneCostanti.ORIGINE_APPLICATIVA });
+
+        // Aggiunge a responsoQuotazione eventuali segnalazioni non tariffarie
+        c.calcolaDerogheNonTariffarie(connettore, op, responsoQuotazione, rata);
+
+        if (bRimuoviAutorizzazione || bRichiestaSupporto) {
+            if (bRimuoviAutorizzazione) {
+                rimuoviAutorizzazioneDaSovrascrivere(connettore);
+            }
+            gestSegnal.aggiungiSegnalazioni(connettore, op, responsoQuotazione);
+        }
+    }
+
+    /**
+     * Ritorna la richiesta di Autorizzazione per il movimento specificato oppure <B>null</B> se il movimento è privo di richiesta di Autorizzazione
+     *
+     * @param connettore
+     *            connessione al DB
+     * @param movimento
+     *            objectid del movimento
+     * @return richiesta di Autorizzazione
+     * @throws IOException
+     * @throws SQLException
+     */
+    public Autorizzazione getAutorizzazione(final Connettore connettore, final EntMovimento movimento)
+        throws IOException, SQLException {
+        Autorizzazione aut = null;
+        if (movimento.getObjectId().isObjectIdAssigned()) {
+            internalCaricaAutorizzazioni(connettore);
+
+            if (listAutorizzazioni != null) {
+                final Iterator iter = listAutorizzazioni.values().iterator();
+                while (iter.hasNext()) {
+                    final Autorizzazione autCorrente = (Autorizzazione) iter.next();
+
+                    if (movimento.getObjectId().equals(autCorrente.getIdMovimentoOwner())) {
+                        aut = autCorrente;
+                        break;
+                    }
+
+                }
+                if (Objects.isNull(aut)){
+                    final Iterator iteratorFail = listAutorizzazioni.values().iterator();
+                    while(iteratorFail.hasNext()) {
+                        final Autorizzazione autCorrente = (Autorizzazione) iteratorFail.next();
+                        EntOperazioni entOperazione = EntitaOperazioni.getSingleton().getById(connettore, autCorrente.getEntAut().getAttrIdOperazione());
+                        if(Objects.nonNull(entOperazione)) {
+                            EntCausale causale = ListaCausali.getSingleton().getByCodice(connettore, entOperazione.getAttrCodice());
+                            if (Objects.nonNull(causale)
+                                    && Objects.isNull(autCorrente.getIdMovimentoOwner())
+                                    && EntPassautorizz.ENUM_ESTATO_ACCETTATA.equals(autCorrente.getEntAut().getAttrStatoObjectId())
+                                    && EntPassautorizz.ENUM_ESTATOWF_ACCETTATA.equals(autCorrente.getEntAut().getAttrStatowfObjectId())
+                                    && movimento.getIdCausale().equals(causale.getObjectId())) {
+                                aut = autCorrente;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return aut;
+    }
+
+    /**
+     * Ritorna la richiesta di Autorizzazione legata al movimento corrente del Contratto oppure <B>null</B> se il movimento è privo di richiesta di Autorizzazione
+     *
+     * @param connettore
+     *            connessione al DB
+     * @return richiesta di Autorizzazione
+     * @throws IOException
+     * @throws SQLException
+     */
+    public IAutorizzazione getAutorizzazioneCorrente(final Connettore connettore)
+        throws IOException, SQLException {
+        Autorizzazione aut = null;
+        final EntMovimento mov = getContratto().getMovimentoCorrente();
+        if (mov != null) {
+            aut = getAutorizzazione(connettore, mov);
+        }
+        return aut;
+    }
+
+    /**
+     * Ritorna la richiesta di Autorizzazione legata al movimento di salvataggio del Contratto oppure <B>null</B> se il movimento è privo di richiesta di Autorizzazione.
+     *
+     * @param connettore
+     *            connessione al DB
+     * @return richiesta di Autorizzazione
+     */
+    public IAutorizzazione getAutorizzazioneSuccessiva(final Connettore connettore)
+        throws IOException, SQLException {
+        Autorizzazione aut = null;
+        final EntMovimento mov = getContratto().getMovimentoDiSalvataggio();
+        if (mov != null) {
+            aut = getAutorizzazione(connettore, mov);
+        }
+        return aut;
+    }
+
+    public IAutorizzazione getAutorizzazionePendente(final Connettore connettore, final ObjectId idPolizza)
+        throws IOException, SQLException {
+        final IAutorizzazione[] arr = internalGetAutorizzazioni(connettore, idPolizza, EntPassautorizz.ENUM_ESTATO_PENDENTE);
+        return (((arr != null) && (arr.length > 0)) ? (Autorizzazione) arr[0] : null);
+    }
+
+    /**
+     * Ritorna un'eventuale richesta di operazione pendente non annullata e non ancora emessa.
+     *
+     * @param connettore
+     *            connessione al DB
+     * @return richesta di operazione sospesa oppure <B>null</B> se non presente
+     */
+    public IAutorizzazione getRichiestaOperazioneSospesa(final Connettore connettore)
+        throws IOException, SQLException {
+        internalCaricaAutorizzazioni(connettore);
+        Autorizzazione aut = null;
+        final Iterator iter = listAutorizzazioni.values().iterator();
+        while (iter.hasNext()) {
+            final Autorizzazione attuale = (Autorizzazione) iter.next();
+            if (attuale.getStato().equals(EntPassautorizz.ENUM_ESTATO_PENDENTE) && attuale.isRichiestaDiOperazioneNonAncoraEmessa() && !attuale.isAnnullata()) {
+                aut = attuale;
+                break;
+            }
+        }
+        return aut;
+    }
+
+    /*
+     * (non-Javadoc)
+     * @see it.rgi.passportafoglio.IGestoreAutorizzazioni#getAutorizzazioni(it.rgi.webapp.dbms.Connettore, it.rgi.webapp.dbms.ObjectId)
+     */
+    @SuppressWarnings("unchecked")
+    public IAutorizzazione[] getAutorizzazioni(final Connettore connettore, final ObjectId idPolizza)
+        throws IOException, SQLException {
+        internalCaricaAutorizzazioni(connettore);
+        return (IAutorizzazione[]) listAutorizzazioni.values().toArray(new IAutorizzazione[listAutorizzazioni.values().size()]);
+    }
+
+    /*
+     * (non-Javadoc)
+     * @see it.rgi.passportafoglio.IGestoreAutorizzazioni#getAutorizzazioniAccettate(it.rgi.webapp.dbms.Connettore, it.rgi.webapp.dbms.ObjectId)
+     */
+    public IAutorizzazione[] getAutorizzazioniAccettate(final Connettore connettore, final ObjectId idPolizza)
+        throws IOException, SQLException {
+        return internalGetAutorizzazioni(connettore, idPolizza, EntPassautorizz.ENUM_ESTATO_ACCETTATA);
+    }
+
+    /*
+     * (non-Javadoc)
+     * @see it.rgi.passportafoglio.IGestoreAutorizzazioni#getAutorizzazioniRifiutate(it.rgi.webapp.dbms.Connettore, it.rgi.webapp.dbms.ObjectId)
+     */
+    public IAutorizzazione[] getAutorizzazioniRifiutate(final Connettore connettore, final ObjectId idPolizza)
+        throws IOException, SQLException {
+        return internalGetAutorizzazioni(connettore, idPolizza, EntPassautorizz.ENUM_ESTATO_RIFIUTATA);
+    }
+
+    /**
+     * Salva la lista interna delle richieste di autorizzazione.<BR>
+     * Non carica la lista prima di salvarla .<BR>
+     *
+     * @param connettore
+     * @param transazione
+     * @param verId
+     * @throws java.io.IOException
+     * @throws java.sql.SQLException
+     */
+    @Override
+    public void salva(final Connettore connettore, final Transazione transazione, final VersionId verId)
+        throws IOException, SQLException {
+        Iterator iter = listAutorizzazioni.values().iterator();
+        while (iter.hasNext()) {
+            ((Autorizzazione) iter.next()).salva(connettore, transazione);
+        }
+
+        iter = listAutorizzazioniRimosse.values().iterator();
+        while (iter.hasNext()) {
+            ((Autorizzazione) iter.next()).delete(connettore, transazione);
+        }
+
+        listAutorizzazioniRimosse.clear();
+    }
+
+    // ///////////////////////////////////////////////////////////
+    // Metodi Protected
+    // ///////////////////////////////////////////////////////////
+
+    /*
+     * (non-Javadoc)
+     * @see it.rgi.appObj.GestoreOggetti#getIteratorOggetti(it.rgi.webapp.dbms.Connettore)
+     */
+    @Override
+    protected ArrayIterator getIteratorOggetti(final Connettore connettore)
+        throws IOException, SQLException {
+        return new ArrayIterator(new Object[0]);
+    }
+
+    /*
+     * (non-Javadoc)
+     * @see it.rgi.appObj.GestoreOggetti#newOggetto(it.rgi.webapp.dbms.Connettore, it.rgi.webapp.dbms.OggettoEntita, it.rgi.webapp.dbms.OggettoRelazione)
+     */
+    @Override
+    protected OggettoBase newOggetto(final Connettore connettore, final OggettoEntita entita, final OggettoRelazione rel)
+        throws IOException, SQLException {
+        throw new RuntimeException(it.rgi.webapp.utility.i18n.Translator.getSingleton().traduci(connettore, "AU0013"));
+    }
+
+    /*
+     * (non-Javadoc)
+     * @see it.rgi.appObj.GestoreOggetti#newRelazioneInterna(it.rgi.appObj.OggettoBase)
+     */
+    @Override
+    protected RelazioneInterna newRelazioneInterna(final OggettoBase oggetto) {
+        return buildRelazioneInterna(oggetto, true);
+    }
+
+    /*
+     * (non-Javadoc)
+     * @see it.rgi.appObj.GestoreOggetti#newRelazioneInterna(it.rgi.webapp.dbms.OggettoRelazione, it.rgi.appObj.OggettoBase)
+     */
+    @Override
+    protected RelazioneInterna newRelazioneInterna(final OggettoRelazione relazione, final OggettoBase oggetto) {
+        return buildRelazioneInterna(oggetto, true);
+    }
+
+    private IAutorizzazione[] internalGetAutorizzazioni(final Connettore connettore, final ObjectId idPolizza, final ObjectId eStatoRichiesta)
+        throws IOException, SQLException {
+        internalCaricaAutorizzazioni(connettore);
+
+        final ArrayList<Autorizzazione> result = new ArrayList<Autorizzazione>();
+        final Iterator iter = listAutorizzazioni.values().iterator();
+        while (iter.hasNext()) {
+            final Autorizzazione attuale = (Autorizzazione) iter.next();
+            if (attuale.getStato().equals(eStatoRichiesta)) {
+                result.add(attuale);
+            }
+        }
+        return result.toArray(new IAutorizzazione[result.size()]);
+    }
+
+    /**
+     * Prova a caricare le richieste solo se il contratto e' stato salvato e se il caricamento non e' gia' stato effettuato. Ordina le richieste per data richiesta.
+     */
+    private void internalCaricaAutorizzazioni(final Connettore connettore)
+        throws IOException, SQLException {
+        if (!loaded) {
+            loaded = true;
+            if ((getContratto() != null) && getContratto().getIdPolizza().isObjectIdAssigned() && ((getContratto().getNumProposta() != null) || (getContratto().getNumPolizza() != null))) {
+                final ArrayIterator iter = getIterAutorizzazioni(connettore);
+                while ((iter != null) && iter.hasNext()) {
+                    final Object[] tupla = (Object[]) iter.next();
+                    final ObjectId idPassAutorizz = (ObjectId) tupla[0];
+                    final ObjectId idMovimento = (ObjectId) tupla[1];
+                    final Autorizzazione autorizzazione = buildAutorizzazione(connettore, idPassAutorizz);
+                    if (idMovimento != null) {
+                        autorizzazione.setIdMovimentoOwner(idMovimento);
+                    }
+                    listAutorizzazioni.put(autorizzazione.getKey(), autorizzazione);
+                }
+            }
+        }
+    }
+
+    protected ArrayIterator getIterAutorizzazioni(final Connettore connettore)
+        throws IOException, SQLException {
+        ArrayIterator iter = null;
+        final Query query = new Query();
+        query.append("select a." + EntPassautorizz.IDPASSAUTORIZZ + ",am." + RelAutorelazione.IDMOVIMENTO + " ");
+        query.append("from " + EntPassautorizz.NOME_TAVOLA + " a left outer join " + RelAutorelazione.NOME_TAVOLA + " am ");
+        query.append("on (a." + EntPassautorizz.IDPASSAUTORIZZ + "=am." + RelAutorelazione.IDPASSAUTORIZZ + ") ");
+        query.append("where ");
+        if (getContratto().getNumProposta() != null) {
+            query.appendEspressione("a", EntPassautorizz.CNUMPROPOSTA, CostantiQuery.EQ, getContratto().getNumProposta());
+        } else {
+            query.appendEspressione("a", EntPassautorizz.CNUMPOLIZZA, CostantiQuery.EQ, getContratto().getNumPolizza());
+        }
+        iter = query.select(connettore, new int[] { MetaInfo.OBJECTID, MetaInfo.OBJECTID });
+
+        return iter;
+    }
+
+    /**
+     * Rimuove eventuali autorizzazioni create in memoria o legate al movimento di salvataggio.<BR>
+     * Va richiamato ogni volta che si generano nuove autorizzazioni (tariffarie o non) prima di aggiungerle al gestore.<BR>
+     * Considera soltanto le autorizzazioni create in memoria (prive di id movimento) e quelle presenti sul movimento di salvataggio.<BR>
+     *
+     * @param connettore
+     *            connessione al db
+     * @return array delle autorizzazioni rimosse
+     */
+    public IAutorizzazione[] rimuoviAutorizzazioneDaSovrascrivere(final Connettore connettore)
+        throws IOException, SQLException {
+        internalCaricaAutorizzazioni(connettore);
+
+        final ArrayList<Autorizzazione> eliminate = new ArrayList<Autorizzazione>();
+        final Iterator iter = listAutorizzazioni.values().iterator();
+        while (iter.hasNext()) {
+            final Autorizzazione attuale = (Autorizzazione) iter.next();
+            if (isRemovibileDalContratto(connettore, attuale)) {
+                final Autorizzazione rimossa = (Autorizzazione) listAutorizzazioni.remove(attuale.getKey());
+                if (rimossa != null) {
+                    eliminate.add(rimossa);
+                    listAutorizzazioniRimosse.put(rimossa.getKey(), rimossa); // Autorizzazioni su operazioni di post-vendita
+                }
+            }
+        }
+        return eliminate.toArray(new Autorizzazione[eliminate.size()]);
+    }
+
+    /**
+     * Ritorna le autorizzazioni visibili sullo stato corrente del Contratto.<BR>
+     *
+     * @param connettore
+     *            connessione al db
+     * @return array delle autorizzazioni visibili sullo stato corrente del Contratto
+     * @throws IOException
+     * @throws SQLException
+     */
+    public IAutorizzazione[] getAutorizzazioniVisibiliSulContratto(final Connettore connettore)
+        throws IOException, SQLException {
+        internalCaricaAutorizzazioni(connettore);
+        final ArrayList<Autorizzazione> correnti = new ArrayList<Autorizzazione>();
+        final Iterator iter = listAutorizzazioni.values().iterator();
+        while (iter.hasNext()) {
+            final Autorizzazione attuale = (Autorizzazione) iter.next();
+            if (isVisibileSulContratto(connettore, attuale)) {
+                correnti.add(attuale);
+            }
+        }
+        return correnti.toArray(new IAutorizzazione[correnti.size()]);
+    }
+
+    /**
+     * Indica se l'autorizzazione è sullo stato corrente del Contratto.<BR>
+     * Torna <B>true</B> solo in una di queste condizioni:<BR>
+     * - si tratta di una richiesta creata in memoria ma non ancora salvata e non annullata.<BR>
+     * - la richiesta e' priva di movimento (richiesta di operazione) e risulta sospesa sul Contratto.<BR>
+     * - la richiesta possiede un movimento che coincide col movimento di salvataggio del Contratto.<BR>
+     * - la richiesta possiede un movimento che coincide col movimento di caricamento del Contratto e non esiste nel gestore una richiesta di operazione sospesa e non sto facendo una variazione.
+     */
+    private boolean isVisibileSulContratto(final Connettore connettore, final Autorizzazione a)
+        throws IOException, SQLException {
+        boolean visibile = false;
+        if (!a.getObjectId().isObjectIdAssigned() && !a.isAnnullata()) {
+            visibile = true;
+        } else if (a.getIdMovimentoOwner() == null) {
+            visibile = a.getObjectId().equals(getContratto().getEntVersione().getAttrIdPassautorizz());
+        } else {
+            final EntMovimento movSalvataggio = getContratto().getMovimentoDiSalvataggio();
+            final EntMovimento movCorrente = getContratto().getMovimentoCorrente();
+            if ((movSalvataggio != null) && movSalvataggio.getObjectId().equals(a.getIdMovimentoOwner())) {
+                visibile = true;
+            } else if ((movCorrente != null) && movCorrente.getObjectId().equals(a.getIdMovimentoOwner()) && (getRichiestaOperazioneSospesa(connettore) == null) && (movSalvataggio == null)) // Autorizzazioni su operazioni di post-vendita
+            {
+                visibile = true;
+            }
+        }
+        return visibile;
+    }
+
+    /**
+     * Indica se l'autorizzazione si può eliminare dallo stato corrente del Contratto.<BR>
+     * Torna <B>true</B> solo in una di queste condizioni:<BR>
+     * - la richiesta e' creata in memoria ma non ancora salvata<BR>
+     * - la richiesta possiede un movimento che coincide col movimento di salvataggio del Contratto.<BR>
+     * - la richiesta possiede un movimento che coincide col movimento di caricamento di una proposta di polizza.
+     */
+    private boolean isRemovibileDalContratto(final Connettore connettore, final Autorizzazione a)
+        throws IOException, SQLException {
+        boolean removibile = false;
+        if (!a.getObjectId().isObjectIdAssigned()) {
+            removibile = true;
+        } else {
+            final EntMovimento movSalvataggio = getContratto().getMovimentoDiSalvataggio();
+            final EntMovimento movCorrente = getContratto().getMovimentoCorrente();
+            if ((movSalvataggio != null) && movSalvataggio.getObjectId().equals(a.getIdMovimentoOwner())) {
+                removibile = true;
+            } else if ((movCorrente != null) && movCorrente.getObjectId().equals(a.getIdMovimentoOwner()) && !getContratto().isPolizza()) {
+                removibile = true;
+            }
+        }
+        return removibile;
+    }
+
+    /**
+     * IVAN: ho aggiunto questo metodo per permettere agli utilizzatori del vecchio gestoreautorizzazioni
+     * di compilare. Serviva per sotituire nel gestorew l'autoriuzzazione corrente da trattare, la nuova PassAutorizzazione è
+     * l'istanza di una sola autorizzazione quindi non esiste più l'indeterminatezza
+     */
+    public void replace(final Connettore connettore, final PassAutorizzazione autorizzazione)
+        throws IOException, SQLException {}
+
+    @Override
+    public void clear()
+        throws IOException, SQLException {
+        super.clear();
+        listAutorizzazioni.clear();
+        listAutorizzazioniRimosse.clear();
+    }
+
+    /**
+     * @return the listAutorizzazioni
+     */
+    public final LinkedHashMap getListAutorizzazioni() {
+        return listAutorizzazioni;
+    }
+
+    /**
+     * @return the listAutorizzazioniRimosse
+     */
+    public final LinkedHashMap getListAutorizzazioniRimosse() {
+        return listAutorizzazioniRimosse;
+    }
+
+    /**
+     * @param connector
+     * @param id
+     * @return
+     * @throws IOException
+     * @throws SQLException
+     */
+    private Autorizzazione buildAutorizzazione(final Connettore connector, final ObjectId id)
+        throws IOException, SQLException {
+        final it.rgi.passportafoglio.aut1.factory.AutorizzazioneFactoryProducer.Factories instance = AutorizzazioneFactoryProducer.Factories.instance();
+        return instance.lookup(new FilterAutorizzazioneBasicImpl(FiltersLibrary.contextFromConnettore(connector))).build(connector, id);
+    }
+}
+
+These are the changes applied to the original Java file in the format of Git diffs. In other words, the changes are in the format of lines that have been removed and lines that have been added. The lines that have been removed are prefixed with a minus sign (-) and the lines that have been added are prefixed with a plus sign (+). The unchanged lines are not shown.
+
+@@ -4,11 +4,7 @@ import it.rgi.appObj.GestoreOggetti;
+ import it.rgi.appObj.GestoreOggettiSimple;
+ import it.rgi.appObj.OggettoBase;
+ import it.rgi.appObj.RelazioneInterna;
+-import it.rgi.dbobjects.EntAutoevento;
+-import it.rgi.dbobjects.EntMovimento;
+-import it.rgi.dbobjects.EntPassautorizz;
+-import it.rgi.dbobjects.EntUtente;
+-import it.rgi.dbobjects.RelAutorelazione;
++import it.rgi.dbobjects.*;
+ import it.rgi.passadmin.OperatoreAutenticato;
+ import it.rgi.passadmin.cache.CacheEntitaUtente;
+ import it.rgi.passaut.PassAutorizzazione;
+@@ -23,7 +19,9 @@ import it.rgi.passportafoglio.base.Contratto;
+ import it.rgi.passportafoglio.base.ProprietaCustom;
+ import it.rgi.passportafoglio.base.ResponsoQuotazione;
+ import it.rgi.passportafoglio.base.rata.ContenitoreRata;
++import it.rgi.passportafoglio.cache.ListaCausali;
+ import it.rgi.passpro.api.PropertyOwner;
++import it.rgi.passprocache.obj.EntitaOperazioni;
+ import it.rgi.webapp.dbms.Connettore;
+ import it.rgi.webapp.dbms.MetaInfo;
+ import it.rgi.webapp.dbms.ObjectId;
+@@ -40,6 +38,7 @@ import java.io.IOException;
+ import java.sql.SQLException;
+ import java.util.ArrayList;
+ import java.util.Iterator;
++import java.util.Objects;
+ 
+ /**
+  * Gestore delle Autorizzazioni it.rgi.passportafoglio.aut1.GestoreAutorizzazioni.<BR>
+@@ -324,26 +323,46 @@ public class GestoreAutorizzazioni extends GestoreOggettiSimple implements IGest
+      *
+      * @param connettore
+      *            connessione al DB
+-     * @param idMovimento
++     * @param movimento
+      *            objectid del movimento
+      * @return richiesta di Autorizzazione
+      * @throws IOException
+      * @throws SQLException
+      */
+-    public Autorizzazione getAutorizzazione(final Connettore connettore, final ObjectId idMovimento)
++    public Autorizzazione getAutorizzazione(final Connettore connettore, final EntMovimento movimento)
+         throws IOException, SQLException {
+         Autorizzazione aut = null;
+-        if (idMovimento.isObjectIdAssigned()) {
++        if (movimento.getObjectId().isObjectIdAssigned()) {
+             internalCaricaAutorizzazioni(connettore);
+ 
+             if (listAutorizzazioni != null) {
+                 final Iterator iter = listAutorizzazioni.values().iterator();
+                 while (iter.hasNext()) {
+                     final Autorizzazione autCorrente = (Autorizzazione) iter.next();
+-                    if (idMovimento.equals(autCorrente.getIdMovimentoOwner())) {
++
++                    if (movimento.getObjectId().equals(autCorrente.getIdMovimentoOwner())) {
+                         aut = autCorrente;
+                         break;
+                     }
++
++                }
++                if (Objects.isNull(aut)){
++                    final Iterator iteratorFail = listAutorizzazioni.values().iterator();
++                    while(iteratorFail.hasNext()) {
++                        final Autorizzazione autCorrente = (Autorizzazione) iteratorFail.next();
++                        EntOperazioni entOperazione = EntitaOperazioni.getSingleton().getById(connettore, autCorrente.getEntAut().getAttrIdOperazione());
++                        if(Objects.nonNull(entOperazione)) {
++                            EntCausale causale = ListaCausali.getSingleton().getByCodice(connettore, entOperazione.getAttrCodice());
++                            if (Objects.nonNull(causale)
++                                    && Objects.isNull(autCorrente.getIdMovimentoOwner())
++                                    && EntPassautorizz.ENUM_ESTATO_ACCETTATA.equals(autCorrente.getEntAut().getAttrStatoObjectId())
++                                    && EntPassautorizz.ENUM_ESTATOWF_ACCETTATA.equals(autCorrente.getEntAut().getAttrStatowfObjectId())
++                                    && movimento.getIdCausale().equals(causale.getObjectId())) {
++                                aut = autCorrente;
++                                break;
++                            }
++                        }
++                    }
+                 }
+             }
+         }
+@@ -364,7 +383,7 @@ public class GestoreAutorizzazioni extends GestoreOggettiSimple implements IGest
+         Autorizzazione aut = null;
+         final EntMovimento mov = getContratto().getMovimentoCorrente();
+         if (mov != null) {
+-            aut = getAutorizzazione(connettore, mov.getObjectId());
++            aut = getAutorizzazione(connettore, mov);
+         }
+         return aut;
+     }
+@@ -381,7 +400,7 @@ public class GestoreAutorizzazioni extends GestoreOggettiSimple implements IGest
+         Autorizzazione aut = null;
+         final EntMovimento mov = getContratto().getMovimentoDiSalvataggio();
+         if (mov != null) {
+-            aut = getAutorizzazione(connettore, mov.getObjectId());
++            aut = getAutorizzazione(connettore, mov);
+         }
+         return aut;
+     }

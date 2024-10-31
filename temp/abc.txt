@@ -1,0 +1,11 @@
+total 92
+-rw-r--r--   1 enrico enrico  1068 Oct 31 10:05 LICENSE
+-rw-r--r--   1 enrico enrico  2215 Oct 31 10:05 README.md
+drwxr-xr-x 129 enrico enrico  4096 Oct 31 10:17 node_modules
+-rw-r--r--   1 enrico enrico 57340 Oct 31 10:17 package-lock.json
+-rw-r--r--   1 enrico enrico  1078 Oct 31 10:17 package.json
+drwxr-xr-x   2 enrico enrico  4096 Oct 31 10:09 prompts
+drwxr-xr-x   5 enrico enrico  4096 Oct 31 10:14 src
+drwxr-xr-x   2 enrico enrico  4096 Oct 31 11:13 temp
+-rw-r--r--   1 enrico enrico   422 Oct 31 10:05 tsconfig.eslint.json
+-rw-r--r--   1 enrico enrico   510 Oct 31 10:05 tsconfig.json
