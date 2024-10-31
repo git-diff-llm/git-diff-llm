@@ -1,0 +1,1 @@
+console.log('I am a second new file added to a commit of first-branch-on-fork');
