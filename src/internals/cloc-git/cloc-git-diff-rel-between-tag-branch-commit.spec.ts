@@ -101,11 +101,11 @@ describe(`allDiffsForProjectWithExplanation$`, () => {
         })
     }).timeout(100000);
 
-    it(`should return the diffs between a commit and a branch of the local repo`, (done) => {
+    it.only(`should return the diffs between a commit and a branch of the local repo`, (done) => {
         const comparisonParams: ComparisonParams = {
             projectDir: './',
-            from_tag_branch_commit: 'ef0f4d45543313067ba84926102b8fa013a98932',
-            to_tag_branch_commit: 'one-branch-on-upstream',
+            from_tag_branch_commit: 'first-branch-on-upstream',  // branch older than the commit
+            to_tag_branch_commit: '4fd71654b5d044e67c6fc1c1f0fa06155036152f', // newer commit
         }
         allDiffsForProjectWithExplanation$(
             comparisonParams,
@@ -118,9 +118,9 @@ describe(`allDiffsForProjectWithExplanation$`, () => {
         ).subscribe({
             next: (diffs) => {
                 // there is a difference of 1 files of type TypeScript or Markdown between the branch and the commit
-                // there is a second file changed but this is with extension .txt and is not counted
-                // https://github.com/EnricoPicci/gitlab-tools/compare/ef0f4d45543313067ba84926102b8fa013a98932...one-branch-on-upstream
+                // https://github.com/EnricoPicci/git-diff-llm/compare/first-branch-on-upstream...4fd71654b5d044e67c6fc1c1f0fa06155036152f
                 expect(diffs.length).equal(1)
+                expect(diffs[0].File).equal('src/internals/cloc-git/cloc-git-diff-rel-between-tag-branch-commit.spec.ts')
             },
             error: (error: any) => {
                 done(error)
@@ -129,7 +129,7 @@ describe(`allDiffsForProjectWithExplanation$`, () => {
         })
     }).timeout(100000);
 
-    it.only(`should return the diffs between 2 commits on the local repo`, (done) => {
+    it(`should return the diffs between 2 commits on the local repo`, (done) => {
         const comparisonParams: ComparisonParams = {
             projectDir: './',
             from_tag_branch_commit: '965e1e43ca3b1e834d1146f90e60bf6fb42ed88b', // older commit
