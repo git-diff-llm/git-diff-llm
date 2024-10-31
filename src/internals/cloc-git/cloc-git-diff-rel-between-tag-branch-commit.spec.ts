@@ -129,6 +129,37 @@ describe(`allDiffsForProjectWithExplanation$`, () => {
         })
     }).timeout(100000);
 
+    it.only(`should return the diffs between 2 commits on the local repo`, (done) => {
+        const comparisonParams: ComparisonParams = {
+            projectDir: './',
+            from_tag_branch_commit: '965e1e43ca3b1e834d1146f90e60bf6fb42ed88b', // older commit
+            to_tag_branch_commit: '5e8d5278ec8fb203adfcca33d5bbc15fb626d71f', // newer commit
+        }
+        allDiffsForProjectWithExplanation$(
+            comparisonParams,
+            repoRootFolder,
+            promptTemplates,
+            executedCommands,
+            languages
+        ).pipe(
+            toArray()
+        ).subscribe({
+            next: (diffs) => {
+                // there is a difference of 1 files of type TypeScript or Markdown between the 2 commits
+                // https://github.com/EnricoPicci/git-diff-llm/compare/965e1e43ca3b1e834d1146f90e60bf6fb42ed88b...5e8d5278ec8fb203adfcca33d5bbc15fb626d71f
+                //
+                // the git web client does not show any difference if we invert the order of the commits
+                // https://github.com/EnricoPicci/git-diff-llm/compare/5e8d5278ec8fb203adfcca33d5bbc15fb626d71f...965e1e43ca3b1e834d1146f90e60bf6fb42ed88b
+                expect(diffs.length).equal(1)
+                expect(diffs[0].File).equal('src/internals/cloc-git/cloc-git-diff-rel-between-tag-branch-commit.spec.ts')
+            },
+            error: (error: any) => {
+                done(error)
+            },
+            complete: () => done()
+        })
+    }).timeout(100000);
+
     //===================== TESTS ON REMOTE REPO =====================
     // Comparison between tags, branches and commits of the local repo and the remote repo
     const url_to_remote_forked_repo = 'https://github.com/codemotion-2018-rome-rxjs-node/gitlab-tools'
