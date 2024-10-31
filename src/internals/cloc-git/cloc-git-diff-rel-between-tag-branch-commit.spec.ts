@@ -7,7 +7,7 @@ import { PromptTemplates } from '../git/explain-diffs';
 import path from 'path';
 import { ComparisonParams } from './cloc-diff-rel';
 
-describe.skip(`allDiffsForProjectWithExplanation$`, () => {
+describe(`allDiffsForProjectWithExplanation$`, () => {
     const repoRootFolder = './'
     const executedCommands: string[] = []
     const languages = ['Markdown', "TypeScript"]
